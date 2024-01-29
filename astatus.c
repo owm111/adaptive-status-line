@@ -5,6 +5,7 @@
 
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define SEPARATOR "   "
+#define BATTERY_NAME "BAT0"
 
 enum result {OK, NO_OUTPUT};
 
@@ -108,7 +109,36 @@ batteries(FILE *stream)
 	int capacity;
 	char ch;
 
-	/* XXX /sys/class/power_supply */
+	/* idea: use glob to find batteries */
+	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/capacity", "r");
+	rc = fscanf(f, "%d", &capacity);
+	fclose(f);
+	if (rc != 1)
+		return NO_OUTPUT;
+	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/status", "r");
+	rc = fscanf(f, "%c", &ch);
+	fclose(f);
+	if (rc != 1)
+		return NO_OUTPUT;
+	switch (ch) {
+	case 'C':
+		ch = '+';
+		break;
+	case 'D':
+		ch = '-';
+		break;
+	case 'I':
+		ch = 'o';
+		break;
+	case 'F':
+		ch = '=';
+		break;
+	default: /* 'U' */
+		ch = '?';
+		break;
+	}
+	fprintf(stream, "bat %c%d%%", ch, capacity);
+	return OK;
 }
 
 static enum result
@@ -129,6 +159,7 @@ enum result (*blocks[])(FILE *) = {
 	mem,
 	load,
 	alsa,
+	batteries,
 	datetime,
 };
 
