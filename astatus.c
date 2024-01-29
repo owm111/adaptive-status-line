@@ -6,6 +6,47 @@
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define SEPARATOR "   "
 #define BATTERY_NAME "BAT0"
+#define INTERFACE_NAME "wlp59s0"
+
+static int
+wifi(FILE *stream)
+{
+	int rc;
+	FILE *f;
+	char ch;
+	int linkquality;
+
+	f = fopen("/sys/class/net/" INTERFACE_NAME "/operstate", "r");
+	if (f == NULL)
+		return 0;
+	rc = fscanf(f, "%c", &ch);
+	fclose(f);
+	if (rc != 1)
+		return 0;
+	if (ch != 'u') {
+		return fprintf(stream, "wifi n/a");
+	}
+	f = fopen("/proc/net/wireless", "r");
+	if (f == NULL)
+		goto how;
+	/* line 1: junk */
+	rc = fscanf(f, "%*[^\n]\n");
+	if (rc != 0)
+		goto what;
+	/* line 2: junk */
+	rc = fscanf(f, "%*[^\n]\n");
+	if (rc != 0)
+		goto what;
+	/* line 3: if: status linkquality linklevel linknoise ... */
+	/* XXX this doesn't work if there is more than one interface! */
+	rc = fscanf(f, INTERFACE_NAME ": %*d %d", &linkquality);
+	if (rc == 0)
+		goto what;
+	fclose(f);
+	return fprintf(stream, "wifi %d", 100 * linkquality / 70);
+what:	fclose(f);
+how:	return fprintf(stream, "wifi ???");
+}
 
 static int
 disks(FILE *stream)
@@ -154,6 +195,7 @@ datetime(FILE *stream)
 }
 
 int (*blocks[])(FILE *) = {
+	wifi,
 	disks,
 	mem,
 	load,
