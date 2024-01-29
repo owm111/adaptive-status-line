@@ -139,6 +139,23 @@ alsa(FILE *stream)
 	return fprintf(stream, "vol muted");
 }
 
+static char
+batterychar(char ch)
+{
+	switch (ch) {
+	case 'C':
+		return '+';
+	case 'D':
+		return '-';
+	case 'I':
+		return 'o';
+	case 'F':
+		return '=';
+	default: /* 'U' */
+		return '?';
+	}
+}
+
 static int
 batteries(FILE *stream)
 {
@@ -162,24 +179,7 @@ batteries(FILE *stream)
 	fclose(f);
 	if (ch == EOF)
 		return 0;
-	switch (ch) {
-	case 'C':
-		ch = '+';
-		break;
-	case 'D':
-		ch = '-';
-		break;
-	case 'I':
-		ch = 'o';
-		break;
-	case 'F':
-		ch = '=';
-		break;
-	default: /* 'U' */
-		ch = '?';
-		break;
-	}
-	return fprintf(stream, "bat %c%d%%", ch, capacity);
+	return fprintf(stream, "bat %c%d%%", batterychar(ch), capacity);
 }
 
 static int
