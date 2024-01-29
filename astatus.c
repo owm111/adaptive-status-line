@@ -7,11 +7,10 @@
 #define SEPARATOR "   "
 #define BATTERY_NAME "BAT0"
 
-enum result {OK, NO_OUTPUT};
-
-static enum result
+static int
 disks(FILE *stream)
 {
+	int n;
 	FILE *df;
 	char ch;
 
@@ -31,15 +30,15 @@ disks(FILE *stream)
 			"}"
 			"'", "r");
 	if (df == NULL)
-		return NO_OUTPUT;
+		return 0;
 	/* XXX is this terribly inefficient? */
-	for (ch = fgetc(df); ch != EOF; ch = fgetc(df))
+	for (ch = fgetc(df), n = 0; ch != EOF; ch = fgetc(df), n++)
 		fputc(ch, stream);
 	pclose(df);
-	return OK;
+	return n;
 }
 
-static enum result
+static int
 mem(FILE *stream)
 {
 	int rc;
@@ -48,20 +47,19 @@ mem(FILE *stream)
 
 	meminfo = fopen("/proc/meminfo", "r");
 	if (meminfo == NULL)
-		return NO_OUTPUT;
+		return 0;
 	rc = fscanf(meminfo, "MemTotal: %lu kB "
 			"MemFree: %lu kB "
 			"MemAvailable: %lu kB ",
 			&total, &free, &available);
 	fclose(meminfo);
 	if (rc != 3)
-		return NO_OUTPUT;
+		return 0;
 	pct = 100lu * (total - available) / total;
-	fprintf(stream, "mem %lu%%", pct);
-	return OK;
+	return fprintf(stream, "mem %lu%%", pct);
 }
 
-static enum result
+static int
 load(FILE *stream)
 {
 	int rc;
@@ -70,16 +68,15 @@ load(FILE *stream)
 
 	loadavg = fopen("/proc/loadavg", "r");
 	if (loadavg == NULL)
-		return NO_OUTPUT;
+		return 0;
 	rc = fscanf(loadavg, "%f", &load);
 	fclose(loadavg);
 	if (rc != 1)
-		return NO_OUTPUT;
-	fprintf(stream, "load %.2f", load);
-	return OK;
+		return 0;
+	return fprintf(stream, "load %.2f", load);
 }
 
-static enum result
+static int
 alsa(FILE *stream)
 {
 	int rc;
@@ -91,19 +88,17 @@ alsa(FILE *stream)
 			"/Front Left:/ {gsub(/[%[\\]]/, \"\"); print $5, $6}"
 			"'", "r");
 	if (amixer == NULL)
-		return NO_OUTPUT;
+		return 0;
 	rc = fscanf(amixer, "%d o%c", &pct, &ch);
 	pclose(amixer);
 	if (rc != 2)
-		return NO_OUTPUT;
+		return 0;
 	if (ch == 'n')
-		fprintf(stream, "vol %d%%", pct);
-	else
-		fprintf(stream, "vol muted");
-	return OK;
+		return fprintf(stream, "vol %d%%", pct);
+	return fprintf(stream, "vol muted");
 }
 
-static enum result
+static int
 batteries(FILE *stream)
 {
 	int rc;
@@ -113,15 +108,19 @@ batteries(FILE *stream)
 
 	/* idea: use glob to find batteries */
 	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/capacity", "r");
+	if (f == NULL)
+		return 0;
 	rc = fscanf(f, "%d", &capacity);
 	fclose(f);
 	if (rc != 1)
-		return NO_OUTPUT;
+		return 0;
 	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/status", "r");
+	if (f == NULL)
+		return 0;
 	rc = fscanf(f, "%c", &ch);
 	fclose(f);
 	if (rc != 1)
-		return NO_OUTPUT;
+		return 0;
 	switch (ch) {
 	case 'C':
 		ch = '+';
@@ -139,11 +138,10 @@ batteries(FILE *stream)
 		ch = '?';
 		break;
 	}
-	fprintf(stream, "bat %c%d%%", ch, capacity);
-	return OK;
+	return fprintf(stream, "bat %c%d%%", ch, capacity);
 }
 
-static enum result
+static int
 datetime(FILE *stream)
 {
 	time_t now;
@@ -152,11 +150,10 @@ datetime(FILE *stream)
 	time(&now);
 	ctime_r(&now, buffer);
 	*strrchr(buffer, ':') = '\0';
-	fprintf(stream, "%s", buffer);
-	return OK;
+	return fprintf(stream, "%s", buffer);
 }
 
-enum result (*blocks[])(FILE *) = {
+int (*blocks[])(FILE *) = {
 	disks,
 	mem,
 	load,
@@ -169,10 +166,10 @@ int
 main(void)
 {
 	unsigned int i;
-	enum result rc = NO_OUTPUT;
+	int rc;
 
-	for (i = 0; i < LEN(blocks); i++) {
-		if (rc != NO_OUTPUT) {
+	for (i = 0, rc = 0; i < LEN(blocks); i++) {
+		if (rc != 0) {
 			fprintf(stdout, SEPARATOR);
 		}
 		rc = blocks[i](stdout);
