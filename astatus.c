@@ -5,6 +5,7 @@
 
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define SEPARATOR "   "
+#define INTERVAL 5
 #define BATTERY_NAME "BAT0"
 #define INTERFACE_NAME "wlp59s0"
 
@@ -194,7 +195,12 @@ datetime(FILE *stream)
 	return fprintf(stream, "%s", buffer);
 }
 
-int (*blocks[])(FILE *) = {
+static const struct timespec sleepinterval = {
+	.tv_sec = INTERVAL,
+	.tv_nsec = 0,
+};
+
+static int (*const blocks[])(FILE *) = {
 	wifi,
 	disks,
 	mem,
@@ -204,17 +210,42 @@ int (*blocks[])(FILE *) = {
 	datetime,
 };
 
-int
-main(void)
+static int
+printline(void)
 {
 	unsigned int i;
-	int rc;
+	int rc, total;
 
-	for (i = 0, rc = 0; i < LEN(blocks); i++) {
+	for (i = 0, total = rc = 0; i < LEN(blocks); i++) {
 		if (rc != 0) {
-			fprintf(stdout, SEPARATOR);
+			total += fprintf(stdout, SEPARATOR);
 		}
-		rc = blocks[i](stdout);
+		total += rc = blocks[i](stdout);
 	}
+	total += fprintf(stdout, "\n");
+	return total;
+}
+
+int
+main(int argc, char **argv)
+{
+	int i;
+	int forever = 1;
+
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-v") == 0) {
+			fprintf(stderr, "astatus-0.0\n");
+			return 0;
+		} else if (strcmp(argv[i], "-1") == 0) {
+			forever = 0;
+		} else {
+			fprintf(stderr, "usage: %s [-1]\n", argv[0]);
+			return 1;
+		}
+	}
+	do {
+		printline();
+		nanosleep(&sleepinterval, NULL);
+	} while (forever);
 	return 0;
 }

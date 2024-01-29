@@ -1,5 +1,5 @@
 CFLAGS += -g -Og -Wall -Wextra -Wpedantic -std=c99
-CPPFLAGS += -D_POSIX_C_SOURCE=2
+CPPFLAGS += -D_POSIX_C_SOURCE=199309L
 
 all: astatus
 
