@@ -15,16 +15,18 @@ disks(FILE *stream)
 	FILE *df;
 	char ch;
 
-	df = popen("df -h | sort | awk '"
+	df = popen("df | awk '"
 			"/^\\/dev\\/nvme/ {"
 				"gsub(/\\/dev\\/|n.p./, \"\");"
-				"disks[$1] = $4;"
+				"total[$1] += $2;"
+				"used[$1] += $3;"
 			"}"
 			"END {"
-				"for (disk in disks) {"
+				"for (disk in total) {"
 					"if (notfirst) printf \" \";"
 					"notfirst = 1;"
-					"printf \"%s %s\", disk, disks[disk];"
+					"sprintf(\"numfmt --to=iec-i %d\", 1024 * (total[disk] - used[disk])) | getline free;"
+					"printf \"%s %d%% %s\", disk, 100 * used[disk] / total[disk], free;"
 				"}"
 			"}"
 			"'", "r");
