@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <signal.h>
+#include <glob.h>
+#include <limits.h>
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
@@ -22,9 +24,9 @@
 #define XFLAG ""
 #define XALLOWED 0
 #endif /* X */
+#define BATTERY_PREFIX "/sys/class/power_supply/"
 #define SEPARATOR "   "
 #define INTERVAL 5
-#define BATTERY_NAME "BAT0"
 #define INTERFACE_NAME "wlp59s0"
 
 static int done = 0;
@@ -188,29 +190,74 @@ batterychar(char ch)
 }
 
 static int
-batteries(FILE *stream)
+battery(FILE *stream, const char *name, int needsep)
 {
 	int rc;
+	int total;
 	FILE *f;
 	int capacity;
 	char ch;
+	static char path[PATH_MAX];
 
-	/* idea: use glob to find batteries */
-	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/capacity", "r");
+	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/type",
+			name);
+	if (rc >= PATH_MAX)
+		return 0;
+	f = fopen(path, "r");
+	if (f == NULL)
+		return 0;
+	ch = fgetc(f);
+	fclose(f);
+	if (ch != 'B')
+		return 0;
+	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/capacity",
+			name);
+	if (rc >= PATH_MAX)
+		return 0;
+	f = fopen(path, "r");
 	if (f == NULL)
 		return 0;
 	rc = fscanf(f, "%d", &capacity);
 	fclose(f);
 	if (rc != 1)
 		return 0;
-	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/status", "r");
+	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/status",
+			name);
+	if (rc >= PATH_MAX)
+		return 0;
+	f = fopen(path, "r");
 	if (f == NULL)
 		return 0;
 	ch = fgetc(f);
 	fclose(f);
 	if (ch == EOF)
 		return 0;
-	return fprintf(stream, "bat %c%d%%", batterychar(ch), capacity);
+	if (needsep)
+		total = fprintf(stream, SEPARATOR);
+	else
+		total = 0;
+	total += fprintf(stream, "%s %c%d%%", name, batterychar(ch), capacity);
+	return total;
+}
+
+static int
+batteries(FILE *stream)
+{
+	int rc, total, prefixlen, needsep;
+	unsigned int i;
+	glob_t globbuf;
+
+	rc = glob(BATTERY_PREFIX "*", 0, NULL, &globbuf);
+	if (rc != 0)
+		return 0;
+	prefixlen = strlen(BATTERY_PREFIX);
+	for (i = 0, needsep = rc = total = 0; i < globbuf.gl_pathc; i++) {
+		rc = battery(stream, &globbuf.gl_pathv[i][prefixlen], needsep);
+		needsep = rc > 0 ? 1 : needsep;
+		total += rc;
+	}
+	globfree(&globbuf);
+	return total;
 }
 
 static int
