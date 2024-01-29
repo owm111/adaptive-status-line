@@ -19,9 +19,9 @@ wifi(FILE *stream)
 	f = fopen("/sys/class/net/" INTERFACE_NAME "/operstate", "r");
 	if (f == NULL)
 		return 0;
-	rc = fscanf(f, "%c", &ch);
+	ch = fgetc(f);
 	fclose(f);
-	if (rc != 1)
+	if (ch == EOF)
 		return 0;
 	if (ch != 'u') {
 		return fprintf(stream, "wifi n/a");
@@ -158,9 +158,9 @@ batteries(FILE *stream)
 	f = fopen("/sys/class/power_supply/" BATTERY_NAME "/status", "r");
 	if (f == NULL)
 		return 0;
-	rc = fscanf(f, "%c", &ch);
+	ch = fgetc(f);
 	fclose(f);
-	if (rc != 1)
+	if (ch == EOF)
 		return 0;
 	switch (ch) {
 	case 'C':
