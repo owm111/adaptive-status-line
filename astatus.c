@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <signal.h>
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
@@ -8,6 +9,15 @@
 #define INTERVAL 5
 #define BATTERY_NAME "BAT0"
 #define INTERFACE_NAME "wlp59s0"
+
+static int done = 0;
+
+static void
+onsignal(int signum)
+{
+	if (signum != SIGUSR1)
+		done = 1;
+}
 
 static int
 wifi(FILE *stream)
@@ -230,22 +240,28 @@ int
 main(int argc, char **argv)
 {
 	int i;
-	int forever = 1;
+	struct sigaction action = {
+		.sa_handler = onsignal,
+	};
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-v") == 0) {
 			fprintf(stderr, "astatus-0.0\n");
 			return 0;
 		} else if (strcmp(argv[i], "-1") == 0) {
-			forever = 0;
+			done = 1;
 		} else {
 			fprintf(stderr, "usage: %s [-1]\n", argv[0]);
 			return 1;
 		}
 	}
+	sigaction(SIGINT, &action, NULL);
+	sigaction(SIGTERM, &action, NULL);
+	sigaction(SIGUSR1, &action, NULL);
 	do {
 		printline();
 		nanosleep(&sleepinterval, NULL);
-	} while (forever);
+	} while (!done);
+	fprintf(stdout, "\n");
 	return 0;
 }
