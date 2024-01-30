@@ -17,6 +17,8 @@
 #endif /* X */
 
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define STRINGIFY(X) #X
+#define TOSTRING(X) STRINGIFY(X)
 #ifdef X
 #define XFLAG " [-x]"
 #define XALLOWED 1
@@ -25,9 +27,9 @@
 #define XALLOWED 0
 #endif /* X */
 #define BATTERY_PREFIX "/sys/class/power_supply/"
+#define MAX_INTERFACE_LEN 512
 #define SEPARATOR "   "
 #define INTERVAL 5
-#define INTERFACE_NAME "wlp59s0"
 
 static int done = 0;
 static int x = 0;
@@ -41,44 +43,169 @@ onsignal(int signum)
 		done = 1;
 }
 
+/*
+XXX is there a simpler way to do wifi? this is kinda a mess.
+The goal is to display the signal strength for any connected interfaces
+(can there be more than one?) and any disconnected interfaces. As far
+as I can tell based on a hour or so of searching, it does not look
+like there is a singular, simple interface that provides all of this
+information. The solution I came up with is:
+
+- Use glob on /sys/class/ieee80211 to get a list of wireless interfaces.
+- Use /proc/net/wireless to get the signal strength of connected interfaces.
+- Use /sys/class/net to get the states of remaining interfaces.
+
+Here are the (potential) issues with this:
+
+- This feels inefficient and complicated.
+- I don't know the actual possible values of operstate thus min. buffer size.
+- I don't know the maximum length of an interface name thus min. buffer size.
+- Does it make sense to there to be multiple (dis)connected  interfaces?
+- Is this the behavior that I want it to actually have?
+*/
+
+/* fills the glob_t with the names of all wireless interfaces.
+returns the same value as glob(3). */
+static int
+globieee80211(glob_t *globptr)
+{
+	int rc;
+	unsigned int i;
+	char *lastslash;
+
+	/* get all wireless adapters */
+	rc = glob("/sys/class/ieee80211/*/device/net/*", 0, NULL, globptr);
+	if (rc != 0)
+		return rc;
+	/* extract their names */
+	for (i = 0; i < globptr->gl_pathc; i++) {
+		lastslash = strrchr(globptr->gl_pathv[i], '/');
+		strcpy(globptr->gl_pathv[i], lastslash + 1);
+		/* we could even realloc  the string to be smaller */
+	}
+	return 0;
+}
+
+/* returns EOF when everything has been read */
+static int
+readwirelessline(FILE *f, char name[MAX_INTERFACE_LEN], int *linkqualityptr)
+{
+	int rc;
+	int dummy;
+
+	do {
+		rc = fscanf(f, "%" TOSTRING(MAX_INTERFACE_LEN) "[^: \t]: "
+				"%*d %d. %*d. %*d %*d %*d %*d %*d %*d %d",
+				name, linkqualityptr, &dummy);
+	} while (rc != EOF && rc != 3);
+	return rc;
+}
+
+/* look for needle in *globptr. if found, free it and remove it from
+the list. returns 1 if it was found, 0 if it wasn't. */
+static int
+deletefromglob(const char *needle, glob_t *globptr)
+{
+	unsigned int i;
+
+	for (i = 0; i < globptr->gl_pathc; i++) {
+		if (strcmp(globptr->gl_pathv[i], needle) != 0)
+			continue;
+		free(globptr->gl_pathv[i]);
+		globptr->gl_pathv[i] = globptr->gl_pathv[--globptr->gl_pathc];
+		return 1;
+	}
+	return 0;
+}
+
+/* returns bytes written, or -1 if something went wrong. */
+static int
+readwireless(FILE *stream, glob_t *globptr)
+{
+	int rc, total;
+	int linkquality;
+	FILE *wireless;
+	static char name[MAX_INTERFACE_LEN];
+
+	wireless = fopen("/proc/net/wireless", "r");
+	if (wireless == NULL)
+		return -1;
+	/* ignore the first two lines */
+	rc = fscanf(wireless, "%*[^\n]\n%*[^\n]\n");
+	if (rc != 0) {
+		fclose(wireless);
+		return -1;
+	}
+	/* read the remaining lines */
+	total = 0;
+	while (readwirelessline(wireless, name, &linkquality) != EOF) {
+		/* remove it from *globptr */
+		deletefromglob(name, globptr);
+		/* maybe print a seperator */
+		if (total > 0)
+			total += fprintf(stream, SEPARATOR);
+		/* print its information */
+		total += fprintf(stream, "%s %d", name, 100 * linkquality / 70);
+	}
+	/* done with that file */
+	fclose(wireless);
+	return total;
+}
+
+/* returns the number of bytes written */
+static int
+printdisconnected(FILE *stream, glob_t *globptr, int needsep)
+{
+	int rc, total;
+	unsigned int i;
+	FILE *file;
+	char operstate[16 /* I don't know the actual values of this */];
+	static char path[PATH_MAX];
+
+	total = 0;
+	for (i = 0; i < globptr->gl_pathc; i++) {
+		rc = snprintf(path, PATH_MAX, "/sys/class/net/%s/operstate",
+				globptr->gl_pathv[i]);
+		if (rc > PATH_MAX)
+			continue;
+		file = fopen(path, "r");
+		if (file == NULL)
+			continue;
+		rc = fscanf(file, "%s", operstate);
+		fclose(file);
+		if (rc != 1)
+			continue;
+		if (needsep)
+			total += fprintf(stream, SEPARATOR);
+		total += fprintf(stream, "%s %s", globptr->gl_pathv[i],
+				operstate);
+		needsep = 1;
+	}
+	return total;
+}
+
 static int
 wifi(FILE *stream)
 {
-	int rc;
-	FILE *f;
-	char ch;
-	int linkquality;
+	int rc, total;
+	glob_t globbuf;
 
-	f = fopen("/sys/class/net/" INTERFACE_NAME "/operstate", "r");
-	if (f == NULL)
+	/* get all wireless interface names */
+	rc = globieee80211(&globbuf);
+	if (rc != 0)
 		return 0;
-	ch = fgetc(f);
-	fclose(f);
-	if (ch == EOF)
+	/* open the file that gives signal strengths */
+	rc = readwireless(stream, &globbuf);
+	if (rc == -1) {
+		globfree(&globbuf);
 		return 0;
-	if (ch != 'u') {
-		return fprintf(stream, "wifi n/a");
 	}
-	f = fopen("/proc/net/wireless", "r");
-	if (f == NULL)
-		goto how;
-	/* line 1: junk */
-	rc = fscanf(f, "%*[^\n]\n");
-	if (rc != 0)
-		goto what;
-	/* line 2: junk */
-	rc = fscanf(f, "%*[^\n]\n");
-	if (rc != 0)
-		goto what;
-	/* line 3: if: status linkquality linklevel linknoise ... */
-	/* XXX this doesn't work if there is more than one interface! */
-	rc = fscanf(f, INTERFACE_NAME ": %*d %d", &linkquality);
-	if (rc == 0)
-		goto what;
-	fclose(f);
-	return fprintf(stream, "wifi %d", 100 * linkquality / 70);
-what:	fclose(f);
-how:	return fprintf(stream, "wifi ???");
+	total = rc;
+	/* print information about disconnected interfaces */
+	total += printdisconnected(stream, &globbuf, total != 0);
+	/* done */
+	globfree(&globbuf);
+	return total;
 }
 
 static int
