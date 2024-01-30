@@ -190,10 +190,11 @@ batterychar(char ch)
 }
 
 static int
-battery(FILE *stream, const char *name, int needsep)
+battery(FILE *stream, char *name, int needsep)
 {
 	int rc;
 	int total;
+	char *lastdash;
 	FILE *f;
 	int capacity;
 	char ch;
@@ -232,6 +233,9 @@ battery(FILE *stream, const char *name, int needsep)
 	fclose(f);
 	if (ch == EOF)
 		return 0;
+	lastdash = strrchr(name, '-');
+	if (lastdash != NULL)
+		*lastdash = '\0';
 	if (needsep)
 		total = fprintf(stream, SEPARATOR);
 	else
