@@ -3,14 +3,34 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#ifdef X
+#include <X11/Xlib.h>
+#else /* X */
+#define DefaultRootWindow(x) (-1)
+#define Display void
+#define XCloseDisplay(x) (-1)
+#define XFlush(dpy) NULL
+#define XOpenDisplay(x) NULL
+#define XStoreName(x, y, z) (-1)
+#endif /* X */
 
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
+#ifdef X
+#define XFLAG " [-x]"
+#define XALLOWED 1
+#else /* X */
+#define XFLAG ""
+#define XALLOWED 0
+#endif /* X */
 #define SEPARATOR "   "
 #define INTERVAL 5
 #define BATTERY_NAME "BAT0"
 #define INTERFACE_NAME "wlp59s0"
 
 static int done = 0;
+static int x = 0;
+static Display *dpy;
+static char xbuf[4096];
 
 static void
 onsignal(int signum)
@@ -221,18 +241,17 @@ static int (*const blocks[])(FILE *) = {
 };
 
 static int
-printline(void)
+printline(FILE *stream)
 {
 	unsigned int i;
 	int rc, total;
 
 	for (i = 0, total = rc = 0; i < LEN(blocks); i++) {
 		if (rc != 0) {
-			total += fprintf(stdout, SEPARATOR);
+			total += fprintf(stream, SEPARATOR);
 		}
-		total += rc = blocks[i](stdout);
+		total += rc = blocks[i](stream);
 	}
-	total += fprintf(stdout, "\n");
 	return total;
 }
 
@@ -240,6 +259,8 @@ int
 main(int argc, char **argv)
 {
 	int i;
+	int rc;
+	FILE *memstream;
 	struct sigaction action = {
 		.sa_handler = onsignal,
 	};
@@ -250,18 +271,64 @@ main(int argc, char **argv)
 			return 0;
 		} else if (strcmp(argv[i], "-1") == 0) {
 			done = 1;
+		} else if (XALLOWED && strcmp(argv[i], "-x") == 0) {
+			x = 1;
+		} else if (strcmp(argv[i], "-s") == 0) {
+			x = 0;
 		} else {
-			fprintf(stderr, "usage: %s [-1]\n", argv[0]);
+			fprintf(stderr, "usage: %s [-1] [-s]" XFLAG "\n",
+					argv[0]);
 			return 1;
 		}
 	}
 	sigaction(SIGINT, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
+	if (x) {
+		dpy = XOpenDisplay(NULL);
+		if (dpy == NULL) {
+			fprintf(stderr, "%s: XOpenDisplay: Failed to open "
+					"display\n", argv[0]);
+			return 1;
+		}
+	}
 	do {
-		printline();
+		if (x) {
+			memstream = fmemopen(xbuf, sizeof(xbuf), "w");
+			if (memstream == NULL) {
+				perror("fmemopen");
+				return 1;
+			}
+			printline(memstream);
+			fclose(memstream);
+			rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
+			if (rc < 0) {
+				fprintf(stderr, "%s: XStoreName: Allocation "
+						"failed\n", argv[0]);
+				return 1;
+			}
+			XFlush(dpy);
+		} else {
+			printline(stdout);
+			printf("\n");
+			fflush(stdout);
+		}
 		nanosleep(&sleepinterval, NULL);
 	} while (!done);
-	fprintf(stdout, "\n");
+	if (x) {
+		xbuf[0] = '\0';
+		rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
+		if (rc < 0) {
+			fprintf(stderr, "%s: XStoreName: Allocation "
+					"failed\n", argv[0]);
+			return 1;
+		}
+		rc = XCloseDisplay(dpy);
+		if (rc < 0) {
+			fprintf(stderr, "%s: XCloseDisplay: Failed to close "
+					"display\n", argv[0]);
+			return 1;
+		}
+	}
 	return 0;
 }
