@@ -216,7 +216,8 @@ disks(FILE *stream)
 	char ch;
 
 	df = popen("df | awk '"
-			"/^\\/dev\\/nvme/ {"
+			"/^\\/dev\\/nvme/ && !($1 in seenexactly) {"
+				"seenexactly[$1] = 1;"
 				"gsub(/\\/dev\\/|n.p./, \"\");"
 				"total[$1] += $2;"
 				"used[$1] += $3;"
