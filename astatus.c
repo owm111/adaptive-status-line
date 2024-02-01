@@ -28,7 +28,7 @@
 #endif /* X */
 #define BATTERY_PREFIX "/sys/class/power_supply/"
 #define MAX_INTERFACE_LEN 512
-#define SEPARATOR "   "
+#define SEPARATOR " ┆ "
 #define INTERVAL 5
 
 static int done = 0;
@@ -424,12 +424,15 @@ printline(FILE *stream)
 	unsigned int i;
 	int rc, total;
 
-	for (i = 0, total = rc = 0; i < LEN(blocks); i++) {
+	total = 2;
+	fputc(' ', stream);
+	for (i = 0, rc = 0; i < LEN(blocks); i++) {
 		if (rc != 0) {
 			total += fprintf(stream, SEPARATOR);
 		}
 		total += rc = blocks[i](stream);
 	}
+	fputc(' ', stream);
 	return total;
 }
 
