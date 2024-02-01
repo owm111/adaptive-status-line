@@ -6,6 +6,11 @@ CPPFLAGS += -DX
 LDLIBS += -lX11
 endif
 
+ifneq ($(NOALSA),1)
+CPPFLAGS += -DALSA
+LDLIBS += -lasound
+endif
+
 all: astatus
 
 clean:

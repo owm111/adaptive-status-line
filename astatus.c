@@ -17,6 +17,29 @@
 #define XOpenDisplay(x) NULL
 #define XStoreName(x, y, z) (-1)
 #endif /* X */
+#ifdef ALSA
+#include <alloca.h>
+#include <alsa/asoundlib.h>
+#else /* ALSA */
+#define SND_MIXER_SCHN_MONO 0
+#define snd_mixer_attach(x, y) (-1)
+#define snd_mixer_close(x) (void)(x)
+#define snd_mixer_detach(x, y) (void)(y)
+#define snd_mixer_elem_t void
+#define snd_mixer_find_selem(x, y) NULL
+#define snd_mixer_free(x) (void)(x)
+#define snd_mixer_load(x) (-1)
+#define snd_mixer_open(x, y) (-1)
+#define snd_mixer_selem_get_playback_switch(x, y, z) (-1)
+#define snd_mixer_selem_get_playback_volume(x, y, z) (-1)
+#define snd_mixer_selem_get_playback_volume_range(x, y, z) (-1)
+#define snd_mixer_selem_id_alloca(x) (void)(x)
+#define snd_mixer_selem_id_set_index(x, y)
+#define snd_mixer_selem_id_set_name(x, y)
+#define snd_mixer_selem_id_t void
+#define snd_mixer_selem_register(x, y, z) (-1)
+#define snd_mixer_t void
+#endif /* ALSA */
 
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define STRINGIFY(X) #X
@@ -31,6 +54,8 @@
 #define BATTERY_PREFIX "/sys/class/power_supply/"
 #define MAX_INTERFACE_LEN 512
 #define MAX_NUM_DISKS 5
+#define ALSA_DEVICE "default"
+#define ALSA_MIXER "Master"
 #define SEPARATOR " ┆ "
 #define INTERVAL 5
 
@@ -358,23 +383,53 @@ load(FILE *stream)
 static int
 alsa(FILE *stream)
 {
-	int rc;
-	FILE *amixer;
-	int pct;
-	char ch;
+	int rc, total;
+	long int min, max, vol;
+	int sw;
+	snd_mixer_t *mixer;
+	snd_mixer_selem_id_t *mixerid;
+	snd_mixer_elem_t *elem;
 
-	amixer = popen("amixer sget Master | awk '"
-			"/Front Left:/ {gsub(/[%[\\]]/, \"\"); print $5, $6}"
-			"'", "r");
-	if (amixer == NULL)
+	total = 0;
+	/* XXX how much error checking is necessary? */
+	rc = snd_mixer_open(&mixer, 0);
+	if (rc != 0)
 		return 0;
-	rc = fscanf(amixer, "%d o%c", &pct, &ch);
-	pclose(amixer);
-	if (rc != 2)
-		return 0;
-	if (ch == 'n')
-		return fprintf(stream, "vol %d%%", pct);
-	return fprintf(stream, "vol muted");
+	rc = snd_mixer_attach(mixer, ALSA_DEVICE);
+	if (rc != 0)
+		goto close;
+	rc = snd_mixer_selem_register(mixer, NULL, NULL);
+	if (rc != 0)
+		goto detach;
+	rc = snd_mixer_load(mixer);
+	if (rc != 0)
+		goto detach;
+	snd_mixer_selem_id_alloca(&mixerid);
+	snd_mixer_selem_id_set_name(mixerid, ALSA_MIXER);
+	snd_mixer_selem_id_set_index(mixerid, 0);
+	elem = snd_mixer_find_selem(mixer, mixerid);
+	if (elem == NULL)
+		goto free;
+	rc = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+	if (rc != 0)
+		goto free;
+	rc = snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO,
+			&vol);
+	if (rc != 0)
+		goto free;
+	rc = snd_mixer_selem_get_playback_switch(elem, 0, &sw);
+	if (rc != 0)
+		goto free;
+	max -= min;
+	vol -= min;
+	if (sw)
+		total = fprintf(stream, "vol %ld%%", 100l * vol / max);
+	else
+		total = fprintf(stream, "vol muted");
+free:	snd_mixer_free(mixer);
+detach:	snd_mixer_detach(mixer, ALSA_DEVICE);
+close:	snd_mixer_close(mixer);
+	return total;
 }
 
 static char

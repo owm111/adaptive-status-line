@@ -14,10 +14,8 @@ Compile time dependencies:
 
 Run time dependencies:
 
-- (GNU?) awk
 - Linux procfs
 - Linux sysfs
-- amixer (for ALSA support to function)
 
 In theory, the program will run if none of these are present, but it
 will not do very much.
