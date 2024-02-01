@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <mntent.h>
+#include <sys/statvfs.h>
 #ifdef X
 #include <X11/Xlib.h>
 #else /* X */
@@ -28,6 +30,7 @@
 #endif /* X */
 #define BATTERY_PREFIX "/sys/class/power_supply/"
 #define MAX_INTERFACE_LEN 512
+#define MAX_NUM_DISKS 5
 #define SEPARATOR " ┆ "
 #define INTERVAL 5
 
@@ -209,35 +212,109 @@ wifi(FILE *stream)
 }
 
 static int
+shouldignoredisk(const struct mntent *entptr)
+{
+	int devlen, bootlen;
+
+	/* no magic numbers */
+	devlen = strlen("/dev");
+	bootlen = strlen("/boot");
+	/* ignore file systems that aren't from /dev */
+	if (strncmp(entptr->mnt_fsname, "/dev", devlen) != 0)
+		return 1;
+	/* ignore anything mounted below /boot */
+	if (strncmp(entptr->mnt_dir, "/boot", bootlen) == 0)
+		return 1;
+	/* everything else is fine */
+	return 0;
+}
+
+static char *
+strlsearch(const char *needle, char **haystack, int nstrings)
+{
+	int i;
+
+	for (i = 0; i < nstrings; i++) {
+		if (strcmp(needle, haystack[i]) == 0)
+			return haystack[i];
+	}
+	return NULL;
+}
+
+static void
+frombytes(unsigned long int bytes, int *baseptr, char *suffixptr)
+{
+	unsigned int i;
+	static const char suffixes[] = {'B', 'k', 'M', 'G', 'T', 'P', 'E'};
+
+	for (i = 0; i < LEN(suffixes) && bytes > 1024; i++, bytes /= 1024);
+	*baseptr = (int)bytes;
+	*suffixptr = i < LEN(suffixes) ? suffixes[i] : '?';
+}
+
+static int
+printadisk(FILE *stream, struct mntent *ent)
+{
+	int rc;
+	unsigned long int total, avail, used;
+	int availbase;
+	char availsuffix;
+	char *lastslash, *ptr;
+	struct statvfs statbuf;
+	static char path[PATH_MAX];
+
+	rc = statvfs(ent->mnt_dir, &statbuf);
+	if (rc < 0)
+		return 0;
+	/* compute the stats we want to show */
+	/* XXX will frsize ever != bsize? */
+	total = statbuf.f_frsize * statbuf.f_blocks;
+	avail = statbuf.f_frsize * statbuf.f_bavail;
+	used = total - avail;
+	frombytes(avail, &availbase, &availsuffix);
+	/* get the basename of the actual path */
+	ptr = realpath(ent->mnt_fsname, path);
+	if (ptr == NULL)
+		return 0;
+	lastslash = strrchr(path, '/');
+	if (lastslash != NULL)
+		strcpy(path, &lastslash[1]);
+	/* print its info */
+	return fprintf(stream, "%s %lu%% %d%c", path,
+			100ul * used / total, availbase, availsuffix);
+}
+
+static int
 disks(FILE *stream)
 {
-	int n;
-	FILE *df;
-	char ch;
+	int ndisks, i, total;
+	struct mntent *entptr;
+	FILE *mounts;
+	char *results[MAX_NUM_DISKS];
 
-	df = popen("df | awk '"
-			"/^\\/dev\\/nvme/ && !($1 in seenexactly) {"
-				"seenexactly[$1] = 1;"
-				"gsub(/\\/dev\\/|n.p./, \"\");"
-				"total[$1] += $2;"
-				"used[$1] += $3;"
-			"}"
-			"END {"
-				"for (disk in total) {"
-					"if (notfirst) printf \" \";"
-					"notfirst = 1;"
-					"sprintf(\"numfmt --to=iec-i %d\", 1024 * (total[disk] - used[disk])) | getline free;"
-					"printf \"%s %d%% %s\", disk, 100 * used[disk] / total[disk], free;"
-				"}"
-			"}"
-			"'", "r");
-	if (df == NULL)
+	total = ndisks = 0;
+	/* busybox also uses /etc/mtab; is that the same? */
+	mounts = setmntent("/proc/mounts", "r");
+	if (mounts == NULL) {
 		return 0;
-	/* XXX is this terribly inefficient? */
-	for (ch = fgetc(df), n = 0; ch != EOF; ch = fgetc(df), n++)
-		fputc(ch, stream);
-	pclose(df);
-	return n;
+	}
+	/* busybox uses the gnu extension _r version */
+	while (entptr = getmntent(mounts), entptr != NULL) {
+		if (shouldignoredisk(entptr))
+			continue;
+		if (ndisks == MAX_NUM_DISKS)
+			break;
+		if (strlsearch(entptr->mnt_fsname, results, ndisks) != NULL)
+			continue;
+		results[ndisks++] = strdup(entptr->mnt_fsname);
+		if (total > 0)
+			total += fprintf(stream, SEPARATOR);
+		total += printadisk(stream, entptr);
+	}
+	endmntent(mounts);
+	for (i = 0; i < ndisks; i++)
+		free(results[i]);
+	return total;
 }
 
 static int

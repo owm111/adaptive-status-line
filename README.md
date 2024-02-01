@@ -15,8 +15,6 @@ Compile time dependencies:
 Run time dependencies:
 
 - (GNU?) awk
-- df (for disk support to function)
-- numfmt (for disk support to function)
 - Linux procfs
 - Linux sysfs
 - amixer (for ALSA support to function)
