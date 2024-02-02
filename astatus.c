@@ -13,6 +13,7 @@
 #else /* X */
 #define DefaultRootWindow(x) (-1)
 #define Display void
+#define Window int
 #define XCloseDisplay(x) (-1)
 #define XFlush(dpy) NULL
 #define XOpenDisplay(x) NULL
@@ -89,6 +90,48 @@ onsignal(int signum)
 {
 	if (signum != SIGUSR1)
 		done = 1;
+}
+
+static FILE *
+efmemopen(void *buf, size_t size, const char *mode)
+{
+	FILE *result;
+
+	result = fmemopen(buf, size, mode);
+	if (result == NULL)
+		die("fmemopen:");
+	return result;
+}
+
+static Display *
+eXOpenDisplay(char *display_name)
+{
+	Display *result;
+
+	result = XOpenDisplay(display_name);
+	if (result == NULL)
+		die("XOpenDisplay: Failed to open display");
+	return result;
+}
+
+static void
+eXStoreName(Display *dpy, Window w, char *window_name)
+{
+	int rc;
+
+	rc = XStoreName(dpy, w, window_name);
+	if (rc < 0)
+		die("XStoreName: Allocation failed");
+}
+
+static void
+eXCloseDisplay(Display *dpy)
+{
+	int rc;
+
+	rc = XCloseDisplay(dpy);
+	if (rc < 0)
+		die("XCloseDisplay: Failed to close display");
 }
 
 /*
@@ -593,7 +636,6 @@ int
 main(int argc, char **argv)
 {
 	int i;
-	int rc;
 	FILE *memstream;
 	struct sigaction action = {
 		.sa_handler = onsignal,
@@ -619,21 +661,14 @@ main(int argc, char **argv)
 	sigaction(SIGINT, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
-	if (x) {
-		dpy = XOpenDisplay(NULL);
-		if (dpy == NULL)
-			die("XOpenDisplay: Failed to open display");
-	}
+	if (x)
+		dpy = eXOpenDisplay(NULL);
 	do {
 		if (x) {
-			memstream = fmemopen(xbuf, sizeof(xbuf), "w");
-			if (memstream == NULL)
-				die("fmemopen:");
+			memstream = efmemopen(xbuf, sizeof(xbuf), "w");
 			printline(memstream);
 			fclose(memstream);
-			rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
-			if (rc < 0)
-				die("XStoreName: Allocation failed");
+			eXStoreName(dpy, DefaultRootWindow(dpy), xbuf);
 			XFlush(dpy);
 		} else {
 			printline(stdout);
@@ -644,12 +679,8 @@ main(int argc, char **argv)
 	} while (!done);
 	if (x) {
 		xbuf[0] = '\0';
-		rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
-		if (rc < 0)
-			die("XStoreName: Allocation failed");
-		rc = XCloseDisplay(dpy);
-		if (rc < 0)
-			die("XCloseDisplay: Failed to close display");
+		eXStoreName(dpy, DefaultRootWindow(dpy), xbuf);
+		eXCloseDisplay(dpy);
 	}
 	return 0;
 }
