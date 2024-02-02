@@ -46,6 +46,8 @@
 #define LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define STRINGIFY(X) #X
 #define TOSTRING(X) STRINGIFY(X)
+#define TIMESPEC(ms) (&(struct timespec){.tv_sec = (ms) / 1000, \
+		.tv_nsec = (ms) % 1000 * 1e6})
 #ifdef X
 #define XFLAG " [-x]"
 #define XALLOWED 1
@@ -59,13 +61,20 @@
 #define ALSA_DEVICE "default"
 #define ALSA_MIXER "Master"
 #define SEPARATOR " ┆ "
-#define INTERVAL 5
+#define URGENT_PREFIX "!!!! Urgent message:"
+#define URGENT_SUFFIX "!!!!"
+#define INTERVAL 5000 /* ms between refreshes */
+#define HOLD_TIME 1500 /* ms to display status when there is an urgent msg */
+#define URGENT_FLASH_ON 100 /* ms to flash urgent message "on" for */
+#define URGENT_FLASH_OFF 50 /* ms to flash urgent message "off" for */
+#define URGENT_FLASHES 20 /* how many times to flash the urgent message */
 
 static char *argv0 = "astatus";
 static int done;
 static int x = 0;
 static Display *dpy;
 static char xbuf[4096];
+static char urgentmsg[2048];
 
 static void
 die(const char *fmt, ...)
@@ -343,7 +352,7 @@ frombytes(unsigned long int bytes, int *baseptr, char *suffixptr)
 static int
 printadisk(FILE *stream, struct mntent *ent)
 {
-	int rc;
+	int rc, pct;
 	unsigned long int total, avail, used;
 	int availbase;
 	char availsuffix;
@@ -359,6 +368,7 @@ printadisk(FILE *stream, struct mntent *ent)
 	total = statbuf.f_frsize * statbuf.f_blocks;
 	avail = statbuf.f_frsize * statbuf.f_bavail;
 	used = total - avail;
+	pct = (int)(100ul * used / total);
 	frombytes(avail, &availbase, &availsuffix);
 	/* get the basename of the actual path */
 	ptr = realpath(ent->mnt_fsname, path);
@@ -368,8 +378,12 @@ printadisk(FILE *stream, struct mntent *ent)
 	if (lastslash != NULL)
 		strcpy(path, &lastslash[1]);
 	/* print its info */
-	return fprintf(stream, "%s %lu%% %d%c", path,
-			100ul * used / total, availbase, availsuffix);
+	if (pct > 90)
+		snprintf(urgentmsg, sizeof(urgentmsg), "%.128s is %d%% full "
+				" (%d%c left)", path, pct, availbase,
+				availsuffix);
+	return fprintf(stream, "%s %d%% %d%c", path,
+			pct, availbase, availsuffix);
 }
 
 static int
@@ -564,6 +578,9 @@ battery(FILE *stream, char *name, int needsep)
 	else
 		total = 0;
 	total += fprintf(stream, "%s %c%d%%", name, batterychar(ch), capacity);
+	if (capacity < 5 && ch != 'C')
+		snprintf(urgentmsg, sizeof(urgentmsg), "%s is running "
+				"critically low (%d%%)", name, capacity);
 	return total;
 }
 
@@ -599,11 +616,6 @@ datetime(FILE *stream)
 	return fprintf(stream, "%s", buffer);
 }
 
-static const struct timespec sleepinterval = {
-	.tv_sec = INTERVAL,
-	.tv_nsec = 0,
-};
-
 static int (*const blocks[])(FILE *) = {
 	wifi,
 	disks,
@@ -613,6 +625,39 @@ static int (*const blocks[])(FILE *) = {
 	batteries,
 	datetime,
 };
+
+static void
+flashurgentmsg(void)
+{
+	int i, bytes;
+	static char onbuf[2048 + 64], offbuf[2048 + 64];
+
+	/* XXX there is probably a way to do this more efficiently and with
+	less buffers */
+	bytes = (int)strlen(urgentmsg);
+	snprintf(onbuf, sizeof(onbuf), URGENT_PREFIX " %s " URGENT_SUFFIX,
+			urgentmsg);
+	snprintf(offbuf, sizeof(offbuf), URGENT_PREFIX " %*s " URGENT_SUFFIX,
+			bytes, "");
+	for (i = 0; i < URGENT_FLASHES; i++) {
+		if (x) {
+			eXStoreName(dpy, DefaultRootWindow(dpy), onbuf);
+			XFlush(dpy);
+		} else {
+			printf("%s\n", onbuf);
+			fflush(stdout);
+		}
+		nanosleep(TIMESPEC(URGENT_FLASH_ON), NULL);
+		if (x) {
+			eXStoreName(dpy, DefaultRootWindow(dpy), offbuf);
+			XFlush(dpy);
+		} else {
+			printf("%s\n", offbuf);
+			fflush(stdout);
+		}
+		nanosleep(TIMESPEC(URGENT_FLASH_OFF), NULL);
+	}
+}
 
 static int
 printline(FILE *stream)
@@ -675,7 +720,13 @@ main(int argc, char **argv)
 			printf("\n");
 			fflush(stdout);
 		}
-		nanosleep(&sleepinterval, NULL);
+		if (urgentmsg[0] == '\0') {
+			nanosleep(TIMESPEC(INTERVAL), NULL);
+		} else {
+			nanosleep(TIMESPEC(HOLD_TIME), NULL);
+			flashurgentmsg();
+			urgentmsg[0] = '\0';
+		}
 	} while (!done);
 	if (x) {
 		xbuf[0] = '\0';
