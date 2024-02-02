@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <stdarg.h>
 #include <mntent.h>
 #include <sys/statvfs.h>
 #ifdef X
@@ -59,10 +60,29 @@
 #define SEPARATOR " ┆ "
 #define INTERVAL 5
 
-static int done = 0;
+static char *argv0 = "astatus";
+static int done;
 static int x = 0;
 static Display *dpy;
 static char xbuf[4096];
+
+static void
+die(const char *fmt, ...)
+{
+	va_list ap;
+
+	fprintf(stderr, "%s: ", argv0);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	if (fmt[0] && fmt[strlen(fmt) - 1] == ':') {
+		fputc(' ', stderr);
+		perror(NULL);
+	} else {
+		fputc('\n', stderr);
+	}
+	exit(1);
+}
 
 static void
 onsignal(int signum)
@@ -579,6 +599,7 @@ main(int argc, char **argv)
 		.sa_handler = onsignal,
 	};
 
+	argv0 = argv[0];
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-v") == 0) {
 			fprintf(stderr, "astatus-0.0\n");
@@ -600,27 +621,19 @@ main(int argc, char **argv)
 	sigaction(SIGUSR1, &action, NULL);
 	if (x) {
 		dpy = XOpenDisplay(NULL);
-		if (dpy == NULL) {
-			fprintf(stderr, "%s: XOpenDisplay: Failed to open "
-					"display\n", argv[0]);
-			return 1;
-		}
+		if (dpy == NULL)
+			die("XOpenDisplay: Failed to open display");
 	}
 	do {
 		if (x) {
 			memstream = fmemopen(xbuf, sizeof(xbuf), "w");
-			if (memstream == NULL) {
-				perror("fmemopen");
-				return 1;
-			}
+			if (memstream == NULL)
+				die("fmemopen:");
 			printline(memstream);
 			fclose(memstream);
 			rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
-			if (rc < 0) {
-				fprintf(stderr, "%s: XStoreName: Allocation "
-						"failed\n", argv[0]);
-				return 1;
-			}
+			if (rc < 0)
+				die("XStoreName: Allocation failed");
 			XFlush(dpy);
 		} else {
 			printline(stdout);
@@ -632,17 +645,11 @@ main(int argc, char **argv)
 	if (x) {
 		xbuf[0] = '\0';
 		rc = XStoreName(dpy, DefaultRootWindow(dpy), xbuf);
-		if (rc < 0) {
-			fprintf(stderr, "%s: XStoreName: Allocation "
-					"failed\n", argv[0]);
-			return 1;
-		}
+		if (rc < 0)
+			die("XStoreName: Allocation failed");
 		rc = XCloseDisplay(dpy);
-		if (rc < 0) {
-			fprintf(stderr, "%s: XCloseDisplay: Failed to close "
-					"display\n", argv[0]);
-			return 1;
-		}
+		if (rc < 0)
+			die("XCloseDisplay: Failed to close display");
 	}
 	return 0;
 }
