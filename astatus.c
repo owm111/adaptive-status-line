@@ -264,10 +264,8 @@ printdisconnected(FILE *stream, glob_t *globptr, int needsep)
 
 	total = 0;
 	for (i = 0; i < globptr->gl_pathc; i++) {
-		rc = snprintf(path, PATH_MAX, "/sys/class/net/%s/operstate",
+		snprintf(path, PATH_MAX, "/sys/class/net/%s/operstate",
 				globptr->gl_pathv[i]);
-		if (rc > PATH_MAX)
-			continue;
 		file = fopen(path, "r");
 		if (file == NULL)
 			continue;
@@ -536,10 +534,7 @@ battery(FILE *stream, char *name, int needsep)
 	char ch;
 	static char path[PATH_MAX];
 
-	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/type",
-			name);
-	if (rc >= PATH_MAX)
-		return 0;
+	snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/type", name);
 	f = fopen(path, "r");
 	if (f == NULL)
 		return 0;
@@ -547,10 +542,7 @@ battery(FILE *stream, char *name, int needsep)
 	fclose(f);
 	if (ch != 'B')
 		return 0;
-	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/capacity",
-			name);
-	if (rc >= PATH_MAX)
-		return 0;
+	snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/capacity", name);
 	f = fopen(path, "r");
 	if (f == NULL)
 		return 0;
@@ -558,10 +550,7 @@ battery(FILE *stream, char *name, int needsep)
 	fclose(f);
 	if (rc != 1)
 		return 0;
-	rc = snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/status",
-			name);
-	if (rc >= PATH_MAX)
-		return 0;
+	snprintf(path, PATH_MAX, BATTERY_PREFIX "%s/status", name);
 	f = fopen(path, "r");
 	if (f == NULL)
 		return 0;
