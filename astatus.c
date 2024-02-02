@@ -356,7 +356,7 @@ printadisk(FILE *stream, struct mntent *ent)
 	unsigned long int total, avail, used;
 	int availbase;
 	char availsuffix;
-	char *lastslash, *ptr;
+	char *lastslash, *name, *ptr;
 	struct statvfs statbuf;
 	static char path[PATH_MAX];
 
@@ -375,14 +375,13 @@ printadisk(FILE *stream, struct mntent *ent)
 	if (ptr == NULL)
 		return 0;
 	lastslash = strrchr(path, '/');
-	if (lastslash != NULL)
-		strcpy(path, &lastslash[1]);
+	name = lastslash == NULL ? path : lastslash + 1;
 	/* print its info */
 	if (pct > 90)
 		snprintf(urgentmsg, sizeof(urgentmsg), "%.128s is %d%% full "
-				" (%d%c left)", path, pct, availbase,
+				" (%d%c left)", name, pct, availbase,
 				availsuffix);
-	return fprintf(stream, "%s %d%% %d%c", path,
+	return fprintf(stream, "%s %d%% %d%c", name,
 			pct, availbase, availsuffix);
 }
 
