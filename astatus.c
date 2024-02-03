@@ -14,10 +14,10 @@
 #define DefaultRootWindow(x) (-1)
 #define Display void
 #define Window int
-#define XCloseDisplay(x) (-1)
+#define XCloseDisplay(x) ((void)(x), -1)
 #define XFlush(dpy) NULL
-#define XOpenDisplay(x) NULL
-#define XStoreName(x, y, z) (-1)
+#define XOpenDisplay(x) ((void)(x), NULL)
+#define XStoreName(x, y, z) ((void)(x), (void)(y), (void)(z), -1)
 #endif /* X */
 #ifdef ALSA
 #include <alloca.h>
