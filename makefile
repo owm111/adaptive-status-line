@@ -8,4 +8,10 @@ all: astatus
 clean:
 	$(RM) astatus
 
-.PHONY: all clean
+install: astatus
+	install -m755 -D -t $(BINDIR) astatus
+
+uninstall:
+	$(RM) $(BINDIR)/astatus
+
+.PHONY: all clean install uninstall
