@@ -1,0 +1,133 @@
+.Dd 2024-02-04
+.Dt ASTATUS 1
+.Os
+.Sh NAME
+.Nm astatus
+.Nd adapative status line
+.Sh SYNOPSIS
+.Nm
+.Op Fl v
+.Op Fl 1
+.Op Fl s
+.Op Fl x
+.Sh DESCRIPTION
+.Nm
+is a small tool for providing system status information to other programs.
+By default, it writes to the standard output to communicate with
+programs like
+.Xr dvtm 1 ,
+but it can also write to the \fIWM_NAME\fP X window property for
+programs like
+.Xr dwm 1 ;
+see
+.Sx OPTIONS
+for details.
+.Pp
+.Nm
+collects status information about the following items.
+If the current system cannot provide information about one of the items
+(e.g., a system that does not have any wireless network interfaces),
+it will be silently ignored.
+.Bl -bullet
+.It
+Wireless network interface statuses and signal strengths.
+.It
+Storage drive utilization and available space.
+.It
+Memory utilization.
+.It
+Processor load.
+.It
+ALSA volume and mute status.
+.It
+Battery status and capacity level.
+.It
+Date and time.
+.El
+.Pp
+If
+.Nm
+determines that one of these items is at a critical level, it will flash
+a warning message in hopes of catching the user's attention.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl v
+Print the version to the standard error, then exit.
+.It Fl 1
+Write once and exit.
+.It Fl s
+Write to the standard output (the default behavior).
+.It Fl x
+Write to \fIWM_NAME\fP instead of the standard output.
+.El
+.Sh CUSTOMIZATION
+.Nm
+can be customized by modifying and (re)compiling the source code.
+This keeps it fast, secure, and simple.
+.Sh SIGNALS
+.Nm
+responds to the following signals:
+.Pp
+.Bl -tag -width TERM -compact
+.It USR1
+Causes
+.Nm
+to retrieve and print new status information immediately.
+.It INT
+Exits.
+.El
+.Sh FILES
+.Nm
+retrieves much of the status information from Linux's
+.Xr proc 5
+and
+.Xr sysfs 5
+interfaces.
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+The following command line shows
+.Nm
+being used as a status line for
+.Xr dvtm 1
+via process redirection.
+.Dl % dvtm -s <(astatus)
+.Pp
+The following script does the same as the previous command, but using
+named pipes instead of process direction (which is not available in
+all shells).
+This example is based off of the \%dvtm-status\: utility.
+.Bd -literal -offset indent
+#!/bin/sh
+fifo=/tmp/dvtm-status.$$
+mkfifo -m600 $fifo
+astatus >$fifo &
+status_pid=$!
+dvtm -s $fifo "$@"
+kill $status_pid
+wait $status_pid
+rm $fifo
+.Ed
+.Pp
+To use
+.Nm
+with
+.Xr dwm 1 ,
+add the following line to \&.xinitrc (or any other X startup file):
+.Dl % astatus -x &
+.Pp
+The following command line shows
+.Xr pkill 1
+being used to have
+.Nm
+print new status information instantly after adjusting the volume.
+Commands like this can be bound to keys in
+.Xr dwm 1
+and similar window managers to update the status line when the user
+adjusts the volume, etc.
+.Dl % amixer sset Master 1%-; pkill -USR1 astatus
+.Sh SEE ALSO
+.Xr dvtm 1 ,
+.Xr dwm 1 ,
+.Xr pkill 1 ,
+.Xr slstatus 1
