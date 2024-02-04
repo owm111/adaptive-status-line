@@ -888,7 +888,7 @@ main(int argc, char **argv)
 	argv0 = argv[0];
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-v") == 0) {
-			fprintf(stderr, "astatus-0.0\n");
+			fprintf(stderr, "astatus-" VERSION "\n");
 			return 0;
 		} else if (strcmp(argv[i], "-1") == 0) {
 			done = 1;

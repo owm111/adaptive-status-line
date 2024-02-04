@@ -1,7 +1,9 @@
 include config.mk
 
+VERSION = 1.0
+
 CFLAGS += -Wall -Wextra -Wpedantic -std=c99
-CPPFLAGS += -D_XOPEN_SOURCE=700
+CPPFLAGS += -D_XOPEN_SOURCE=700 -DVERSION=\"$(VERSION)\"
 
 all: astatus
 
