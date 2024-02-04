@@ -1,5 +1,5 @@
 CFLAGS += -g -Og -Wall -Wextra -Wpedantic -std=c99
-CPPFLAGS += -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=500
+CPPFLAGS += -D_XOPEN_SOURCE=700
 
 ifneq ($(NOX),1)
 CPPFLAGS += -DX
